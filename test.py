@@ -1,72 +1,59 @@
 import requests
+import re
 from bs4 import BeautifulSoup
-import pandas as pd
-from datetime import datetime
-import time
+
+baseurl = 'https://www.intergastro.com/brands/broggi/'
 
 headers = {
-    "User-Agent": "Mozilla/5.0"
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
 }
+productlinks = set()  
+for x in range(1, 20):
+    r = requests.get(f'https://www.intergastro.com/brands/broggi/Page{x}/', headers=headers)
+    soup = BeautifulSoup(r.content, 'lxml')
+    productlist = soup.find_all('div', class_='product-list-item col-md-4 col-xs-6 grid-view')
+    for item in productlist:
+        for link in item.find_all('a', href=True):
+            productlinks.add(link['href'])
+for link in productlinks:
+    r = requests.get(link, headers=headers)
+    soup = BeautifulSoup(r.content, 'lxml')
 
-# Example: Load product list (with MFR codes)
-product_list = pd.read_excel("BROGGI.xlsx")
+    brand_tag = soup.find('div', class_='product-brand')
+    name_tag = soup.find('h1', class_='product-name')
+    mfr_tag = soup.find('li', class_='ish-ca-type')
+    img_container = soup.find('div', class_='product-image-container')
+    breadcrumb_div = soup.find('div', class_='breadcrumbs row')
 
-product_list.columns = product_list.columns.str.strip()
+    brand = brand_tag.text.strip() if brand_tag else None
+    name = name_tag.text.strip() if name_tag else None
+    mfr = mfr_tag.text.strip() if mfr_tag else None
 
-for index, row in product_list.iterrows():
-    mfr_code = str(row["Mfr Catalog No."]).strip()
-    product_name_ref = row["Short Description"]
+    img_url = (
+        img_container.find('img')['src']
+        if img_container and img_container.find('img')
+        else None
+    )
 
-    print("MFR:", mfr_code, "| Name:", product_name_ref)
+    category = (
+        " > ".join(a.text.strip() for a in breadcrumb_div.find_all('a'))
+        if breadcrumb_div else None
+    )
 
-    # Example search on shopdecor (change per site)
-    search_url = f"https://shopdecor.com/search?q={mfr_code}"
-    
-    try:
-        r = requests.get(search_url, headers=headers, timeout=10)
-        soup = BeautifulSoup(r.text, "html.parser")
+    broggi = {
+        'brand': brand,
+        'name': name,
+        'manufacturer': mfr,
+        'image_url': img_url,
+        'category': category
+    }
 
-        # Find first product link
-        product_link = soup.find("a", class_="product-item__title")
-
-        if not product_link:
-            print("Not found")
-            continue
-
-        product_url = "https://shopdecor.com" + product_link["href"]
-
-        # Open product page
-        r2 = requests.get(product_url, headers=headers)
-        soup2 = BeautifulSoup(r2.text, "html.parser")
-
-        # ---- SCRAPE DATA ----
-        name = soup2.find("h1").text.strip()
-
-        img = soup2.find("img", class_="product__media-image")["src"]
-
-        desc = soup2.find("div", class_="product__description").text.strip()
-
-        specs = soup2.find("div", class_="product__accordion-content").text.strip()
-
-        results.append({
-            "brand": "BROGGI",
-            "product_name": name,
-            "manufacturer_id": mfr_code,
-            "product_url": product_url,
-            "image_url": img,
-            "availability": "In Stock",  # change if site shows it
-            "category": "Tableware",      # adjust per product
-            "product_description_overview": desc,
-            "scraped_at": datetime.now().strftime("%Y-%m-%d"),
-            "product_specs": specs
-        })
-
-        time.sleep(2)  # be polite
-
-    except Exception as e:
-        print("Error:", e)
-        continue
-
-# Save file
-df = pd.DataFrame(results)
-df.to_excel("Uy_Rafael_BROGGI_20260205.xlsx", index=False)
+    print(
+    "{\n"
+    f"  'brand': {broggi['brand']!r},\n"
+    f"  'name': {broggi['name']!r},\n"
+    f"  'manufacturer': {broggi['manufacturer']!r},\n"
+    f"  'image_url': {broggi['image_url']!r},\n"
+    f"  'category': {broggi['category']!r}\n"
+    "}\n"
+)
